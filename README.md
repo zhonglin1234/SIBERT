@@ -72,9 +72,7 @@ r.unit=dat1[[7]]
 
 ```
 
-## Step 3: Visualize Clusters (optional)
-
-#### 3.1 Inspect Seurat Clusters and identify potential clusters of tumor
+## Step 3:Inspect Seurat Clusters and identify potential clusters of tumor
 
 ```r
 tmp.mean <- plot_seurat_clusters(
