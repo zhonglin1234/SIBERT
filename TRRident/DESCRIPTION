@@ -1,0 +1,46 @@
+Package: TRRident
+Type: Package
+Title: T Cell Entry Region Identification in Spatial Transcriptomics
+Version: 0.1.0
+Authors@R: c(
+    person("Your", "Name", email = "your.email@example.com", role = c("aut", "cre")),
+    person("Collaborator", "Name", role = "aut")
+    )
+Description: A computational framework for identifying T cell entry regions 
+    (TRR) in spatial transcriptomics data. The method uses Ising models with 
+    impurities to detect regions where T cells enter the tumor core. The 
+    workflow includes data preparation from 10x Visium data, estimation of 
+    Ising model parameters (J1 and J2), change point detection using negative 
+    binomial regression with Polya-Gamma augmentation, and Gibbs sampling to 
+    calculate posterior probabilities of region membership.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.1
+Depends: 
+    R (>= 4.0.0)
+Imports:
+    Seurat (>= 4.0.0),
+    ggplot2,
+    dplyr,
+    igraph,
+    MASS,
+    BayesLogit,
+    Rcpp (>= 1.0.0),
+    RcppArmadillo,
+    mclust,
+    coda,
+    changepoint,
+    changepoint.np,
+    reshape2
+Suggests:
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0)
+LinkingTo: 
+    Rcpp,
+    RcppArmadillo
+VignetteBuilder: knitr
+URL: https://github.com/yourusername/TRRident
+BugReports: https://github.com/yourusername/TRRident/issues

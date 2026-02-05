@@ -1,0 +1,247 @@
+---
+title: "TRRident: Identifying T Cell Entry Regions in Spatial Transcriptomics"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{TRRident: Identifying T Cell Entry Regions in Spatial Transcriptomics}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+
+## Introduction
+TRRident is a computational framework for identifying T cell entry regions (TRR) in spatial transcriptomics data. The method uses Ising models with impurities to detect regions where T cells enter the tumor core.
+
+## Installation
+
+```{r installation}
+# Install from GitHub
+# devtools::install_github("yourusername/TRRident")
+
+# Load the package
+library(TRRident)
+```
+
+## Data Requirements
+
+TRRident works with 10x Visium spatial transcriptomics data. You need:
+
+1. **HDF5 filtered feature-barcode matrix** (e.g., `filtered_feature_bc_matrix.h5`)
+2. **Spatial imaging data folder** (must be named `spatial/`)
+3. The `tissue_positions.csv` file from the spatial folder
+
+## Tutorial: Melanoma Analysis
+
+### Step 1: Load Data
+
+First, define your marker genes:
+
+```{r markers}
+# T cell markers
+tcell_markers <- c('CD3D', 'CD3E', 'CD3G', 'CD4', 'CD8A', 'CD8B2')
+
+# Exhaustion markers
+ex_markers <- c('PDCD1', 'LAG3', 'HAVCR2', 'TIGIT', 'ENTPD1', 'CTLA4', 'TOX')
+```
+
+Load and prepare the data:
+
+```{r load_data}
+dat1 <- data_preparation_TRR(
+  folder = 'data/visium_melanoma1',
+  filenm = "CytAssist_FFPE_Human_Skin_Melanoma_filtered_feature_bc_matrix.h5",
+  res = 0.2,
+  loc_file = 'data/visium_melanoma1/spatial/tissue_positions.csv',
+  ex_markers = ex_markers,
+  tcell_markers = tcell_markers
+)
+
+# Extract prepared data
+sp.counts.r <- dat1[[1]]
+sp.counts.norm <- dat1[[2]]
+sp.counts.tpm <- dat1[[3]]
+vgg <- dat1[[4]]
+loc.raw <- dat1[[5]]
+meta_dat <- dat1[[6]]
+r.unit <- dat1[[7]]
+```
+
+### Step 2: Identify Tumor Clusters
+
+```{r tumor_clusters}
+# Load cancer markers (you need to provide these)
+# cancer.markers$melanoma should contain melanoma-specific genes
+
+tmp.mean <- plot_seurat_clusters(
+  loc = loc.raw,
+  meta_dat = meta_dat,
+  sp.counts.norm = sp.counts.norm,
+  sp.counts.r = sp.counts.r,
+  cancer.markers = cancer.markers$melanoma
+)
+
+# Define tumor clusters based on high cancer marker expression
+tumor.clus <- c(0, 4, 5, 6)  # Adjust based on your data
+tumor.loc <- loc.raw[rownames(meta_dat)[which(meta_dat$seurat_clusters %in% tumor.clus)], ]
+```
+
+### Step 3: Estimate J1 for the Ising Model
+
+J1 is the coupling parameter that controls how strongly neighboring spots influence each other:
+
+```{r estimate_j1}
+j1.dat <- estimate_J1_dat(genes = 'B2M', sp.dd = sp.counts.r, adj.umi = FALSE)
+
+sum_obs <- j1.dat[[2]]
+j1.dat <- j1.dat[[1]]
+
+loc.dat <- j1.dat[[2]]
+obs_ss <- j1.dat[[3]]
+nb.r <- j1.dat[[4]]
+nb.info <- j1.dat[[5]]
+
+# Find optimal J1 using variational inference
+first_dr <- find_optimal_mu_Q(
+  mu_Q_candidates = seq(0.16, 0.44, by = 0.01),
+  init_x = sample(c(-1, 1), size = length(obs_ss), prob = c(0.5, 0.5), replace = TRUE),
+  nb.list.cpp = nb.info,
+  mu = 0.3, sigma2 = 0.0049, sigma2_Q = 0.0001,
+  K = 10, s_obs = sum_obs, n_flip = 60000, M = 10000
+)
+
+J1 <- as.numeric(names(first_dr)[which.min(first_dr)])
+```
+
+### Step 4: Decompose 2D Data into 1D Lines
+
+```{r get_lines}
+all.lines <- get_lines(loc.raw, grid.type = 'hex', max_gap = 7, aa = 0.2)
+plot_lines(loc.raw, all.lines, grid.type = 'hex')
+```
+
+### Step 5: Get Margin Spots
+
+```{r margin_spots}
+margin.spots <- c()
+for (i in 1:length(all.lines)) {
+  tmp.lines <- all.lines[[i]]
+  margin.spots <- c(margin.spots, unlist(lapply(tmp.lines, function(x) 
+    rownames(x)[c(1, nrow(x))])))
+}
+margin.spots <- unique(margin.spots)
+
+plot(loc.raw)
+points(loc.raw[margin.spots, ], col = 'red')
+```
+
+### Step 6: Detect Change Points
+
+```{r change_points}
+NN <- nrow(sp.counts.r)
+YY <- rowSums(sp.counts.r[, ex_markers])
+XX <- cbind(rep(1, NN), rep(NA, NN), rowSums(sp.counts.r[, tcell_markers]))
+rownames(XX) <- names(YY)
+
+all.output.tcell <- get_cps_and_save(
+  all.lines = all.lines,
+  YY = YY,
+  XX = XX,
+  K = 0,
+  alpha_vec = seq(0.1, 1, length = 10),
+  method_cp = 'PG',
+  dat_name = 'data/melanoma1_tcelladj',
+  grid.type = 'hex'
+)
+```
+
+### Step 7: Calculate Slopes
+
+```{r slopes}
+slope.output <- calculate_slopes(
+  all_segs = all.segs.list[[10]],
+  all.lines = all.lines,
+  y_markers = ex_markers,
+  sp.counts.r = sp.counts.r,
+  method_beta = 'PG',
+  alpha = alpha_vec[10],
+  dat_name = 'data/melanoma1'
+)
+```
+
+### Step 8: Estimate J2
+
+J2 controls the impurity interactions at change points:
+
+```{r estimate_j2}
+lambda.list <- seq(1, 10, length = 5)
+j2.dat <- plot_J2(J1 = J1, lambda.list = lambda.list)
+
+mean.list <- j2.dat[[1]]
+n.add <- j2.dat[[2]]
+new.nb.list <- j2.dat[[3]]
+
+# Plot to find transition point
+plot(mean.list, type = 'l', ylim = c(0, 20), xaxt = "n", 
+     xlab = "J2", ylab = '% spots with Pr(TRR)>0.7')
+axis(1, at = seq_along(mean.list), labels = round(lambda.list, 1))
+
+# Define J2 at the transition point
+J2 <- 5  # Adjust based on the plot
+```
+
+### Step 9: Gibbs Sampling
+
+```{r gibbs}
+ss.mat <- gibbs_sampling_new(
+  ss = ss,
+  spot_names = names(obs_ss),
+  n_add = n.add * J2,
+  nb_list = nb.r,
+  new_nb_list = new.nb.list,
+  J = J1,
+  loc = loc.raw,
+  iterations = 5000
+)
+
+ss.mat[ss.mat == -1] <- 0
+final.probs <- calculate_final_prob(ss.mat, loc = loc.dat, burn_in = 2000, J = J1)
+```
+
+### Step 10: Get Final TRR Regions
+
+```{r get_trr}
+final.regions <- get_TRR(final.probs)
+```
+
+## Downstream Analysis
+
+After identifying TRR regions, you can perform differential expression analysis:
+
+```{r downstream}
+# Define TRR spots and control spots
+trr_spots <- unlist(final.regions)
+control_spots <- rownames(tumor.loc)[!rownames(tumor.loc) %in% trr_spots]
+
+# Differential expression with T cell marker adjustment
+de_results <- gene_comparison_tmaker_adj_all(
+  genes = vgg,
+  ids0 = control_spots,
+  ids1 = trr_spots,
+  umi.adj = TRUE
+)
+
+# Filter significant genes
+sig_genes <- de_results[de_results$adj_p_value < 0.05 & abs(de_results$logFC) > 1, ]
+```
+
+## Session Info
+
+```{r session}
+sessionInfo()
+```

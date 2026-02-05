@@ -1,0 +1,40 @@
+# R files
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Compiled code
+*.o
+*.so
+*.dll
+src/*.o
+src/*.so
+src/*.dll
+
+# Package files
+*.tar.gz
+*.tgz
+
+# Documentation
+/man/*.Rd
+!man/figures/
+
+# Build artifacts
+/NAMESPACE
+inst/doc
+
+# IDE
+.idea/
+*.swp
+*~
+
+# macOS
+.DS_Store
+
+# Data files
+*.h5
+*.csv
+*.Rdata
+*.RData

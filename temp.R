@@ -15,10 +15,10 @@ for (f in head(rdata_files, 2)) {
 tcell_markers=c('CD3D','CD3E','CD3G','CD4','CD8A','CD8B2')
 ex_markers=c('PDCD1','LAG3','HAVCR2','TIGIT','ENTPD1','CTLA4','TOX')
 
-dat1=data_preparation_TRR(folder='data/visium_melanoma1',  
-                          filenm = "CytAssist_FFPE_Human_Skin_Melanoma_filtered_feature_bc_matrix.h5", 
+dat1=data_preparation_TRR(folder='data/visium_hd/pseudo_visium/',
+                          filenm = "filtered_feature_bc_matrix.h5",
                           res=0.2,
-                          loc_file='data/visium_melanoma1/spatial/tissue_positions.csv',
+                          loc_file='data/visium_hd/pseudo_visium/spatial/tissue_positions.csv',
                           ex_markers=ex_markers,
                           tcell_markers=tcell_markers
 )
@@ -48,7 +48,7 @@ tmp.spots <- SpatialPoints(loc.raw)
 boundary_points <- locator(type = "l")  # Click on the plot to create a boundary
 boundary_polygon <- Polygon(cbind(boundary_points$x, boundary_points$y))
 boundary_sp <- SpatialPolygons(list(Polygons(list(boundary_polygon), ID = "boundary")))
-tumor.loc<- data.frame(tmp.spots[boundary_sp, ]) 
+tumor.loc<- data.frame(tmp.spots[boundary_sp, ])
 plot(loc.raw)
 points(tumor.loc,col='red')
 
@@ -70,7 +70,7 @@ first_dr<-find_optimal_mu_Q(mu_Q_candidates=seq(0.16, 0.44, by = 0.01),
                             mu=0.3, sigma2=0.0049,sigma2_Q=0.0001, #prior of J
                             K=10, s_obs=sum_obs , n_flip=60000, M=10000) # can set mu_Q_candidates=seq(0.35, 0.41, by = 0.01) here to save time, as omega is 0.84
 
-J1=as.numeric(names(first_dr)[which(first_dr==min(first_dr))]) 
+J1=as.numeric(names(first_dr)[which(first_dr==min(first_dr))])
 
 
 
