@@ -14,6 +14,51 @@ colfunc<-colorRampPalette(c("royalblue","springgreen","yellow",'red'))
 #plot(rep(1,50),col=(colfunc(50)), pch=19, cex=.8,cex=2)
 
 
+data_preparation_TRR<-function(folder,filenm,loc_file,res=0.2, tcell_markers,ex_markers,cutf=100){
+  #Load data in
+  dat1=data_preparation(folder=folder, 
+                        filenm = filenm,
+                        res=res,
+                        loc_file=loc_file,
+                        ex.list=ex_markers,
+                        cell=tcell_markers,
+                        cell_cut=1,
+                        cut.t=1e-10,
+                        n.vgg=3000)
+  
+  
+  sp.counts.r=dat1[[1]]
+  sp.counts.norm=dat1[[2]]
+  sp.counts.tpm=dat1[[12]]
+  
+  vgg=dat1[[3]]
+  loc.raw=dat1[[4]] 
+  meta_dat=dat1[[5]] 
+  
+  spot.sdist=as.matrix(dist(loc.raw))
+  r.unit=min(spot.sdist[which(spot.sdist!=0)])*1.02
+  
+  #Get exhaustion score adjusted for count of T cell markers from NB regression
+  NN=nrow(sp.counts.r)
+  YY=rowSums(sp.counts.r[,ex_markers])
+  XX = cbind(rep(1, NN), rep(NA, NN),rowSums(sp.counts.r[,tcell_markers]))
+  rownames(XX)=names(YY)
+  dat = data.frame(x = XX[,3], y = YY)
+  mm = glm.nb(y ~ x, data = dat)
+  yy_adjusted = residuals.glm(mm, type = 'pearson')  # Adjusted for the number of T cell markers
+  names(yy_adjusted) = names(YY)
+  meta_dat$ex.score.nb=yy_adjusted[rownames(meta_dat)]
+  
+  return(list(sp.count.r=dat1[[1]],
+              sp.counts.norm=dat1[[2]],
+              sp.counts.tpm=sp.counts.tpm,
+              vgg=dat1[[3]],
+              loc.raw=dat1[[4]],
+              meta_dat=meta_dat,
+              r.unit=r.unit))
+}
+
+
 
 ################################
 #Get all lines

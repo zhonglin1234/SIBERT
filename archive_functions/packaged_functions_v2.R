@@ -1,5 +1,102 @@
 options(future.globals.maxSize = 5 * 1024^3)  # 2 GB
 
+data_preparation<-function(folder,
+                           filenm,
+                           loc_file,
+                           res,
+                           ex.list,
+                           cell,
+                           cell_cut, # cutoff of sum of T cells markers to define T cell spot
+                           cut.t=1e-10,
+                           n.vgg,
+                           clustering=F) { #cutoff of exhaustion score difference to cluster spots into one single nodes
+  
+  ###Load data
+  seurat_items=read.spatial.dat(folder=folder,  filenm = filenm, resolut=res,
+                                loc_file=loc_file,n.vgg=n.vgg)
+  sp.counts.r=seurat_items[[1]]
+  #print(sp.counts.r[1:5,1:5])
+  sp.counts.norm=seurat_items[[2]]
+  meta_dat=seurat_items[[4]]
+  loc.raw=seurat_items[[5]]
+  vgg=colnames(seurat_items[[3]]) #sp.counts.scale
+  
+  
+  sp.counts.tpm=apply(sp.counts.r,2,function(x) as.numeric(x)/meta_dat[rownames(sp.counts.r),'nCount_Spatial']*1e6)
+  rownames(sp.counts.tpm)=rownames(sp.counts.r)
+  
+  ### Add exhaustion score to meta data
+  
+  #Add sum of cell markers and sum of exhaustion scores
+  meta_dat=add_sum_to_meta(ex.list=ex.list,cell=cell,sp.counts.r=sp.counts.r,meta_dat=meta_dat)
+  
+  #Define T cell spots
+  keep.ids=rownames(meta_dat[which(meta_dat$cell.sum>=cell_cut),]) 
+  print(paste("Number of T cell spots are:",length(keep.ids)))
+  
+  vgg.mean=apply(sp.counts.r[keep.ids,vgg],2,mean)
+  quantile(vgg.mean,seq(0,1,0.1))
+  vgg=vgg[which(vgg.mean>0.1)]
+  
+  #Add exhaustion score
+  meta_dat=add_pt_to_meta(keep.ids=keep.ids,meta_dat=meta_dat)
+  meta_dat_cell=meta_dat[keep.ids,] #meta data of the T cell spots
+  
+  pt=meta_dat_cell$ex.score #Exhaustion score 
+  names(pt)=rownames(meta_dat_cell)
+  
+  ### Rescale xy coordinates
+  loc.rsc=rescale_loc(loc=loc.raw,pt=pt,aa=1)
+  
+  #Coordinates of T cell spots
+  loc1=loc.rsc[keep.ids,]
+  
+  #Exhaustion score distance matrix among spots
+  spot.pt.dist=as.matrix(dist(pt))
+  
+  rownames(spot.pt.dist)=rownames(loc1)
+  colnames(spot.pt.dist)=rownames(loc1)
+  
+  #unit spatial distance
+  spot.sdist=as.matrix(dist(loc1,diag = T))
+  r.unit=min(spot.sdist[which(spot.sdist!=0)])*1.015
+  
+  ### Make subclusters and get their info
+  if (clustering==T) {
+    sub.clusters=assign_subcluster(cut.t=cut.t,nr=1.1,spots=keep.ids,spot.sdist=spot.sdist,r.unit=r.unit,spot.pt.dist=spot.pt.dist)
+  }
+
+  if (clustering==F) {
+    sub.clusters=as.list(keep.ids)
+  }
+  ll=unlist(lapply(sub.clusters,length))
+  print('Number of spots in each node:')
+  print(table(ll))
+  
+  #Get meta data for subclusters
+  meta.cts=meta_subclusters(sub.clusters=sub.clusters,loc=loc1,pt=pt,meta_dat=meta_dat,keep.ids=keep.ids)
+  names(sub.clusters)=rownames(meta.cts)
+  
+  #Get location of subclusters
+  loc.cts=meta.cts[,c('x','y')]
+  pt.cts=meta.cts$pt
+  names(pt.cts)=rownames(meta.cts)
+  
+  
+  output=c(list(sp.counts.r),list(sp.counts.norm),list(vgg),list(loc.raw),list(meta_dat),
+           list(keep.ids),
+           list(meta.cts),list(loc.cts),list(pt.cts),list(r.unit),
+           list(sub.clusters),list(sp.counts.tpm))
+  
+  names(output)=c('raw count data','normalized count data','Top variable genes','XY coordinate of the raw data',
+                  'meta data of the spot data','Barcodes of T cell spots',
+                  'meta data of the node data',
+                  'Rescaled XY coordinate of the node data','Exhaustion scores of the nodes','Distance between adjacent nodes',
+                  'Spots in nodes','TPM data')
+  return(output)
+}
+
+
 
 get_all_paths <-function(loc.cts, #rescaled XY coordinate of node data
                          pt.cts, # Exhaustion score of nodes
