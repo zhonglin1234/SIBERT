@@ -20,6 +20,59 @@ colfunc<-colorRampPalette(c("royalblue","springgreen","yellow",'red'))
 
 ###1. Load data into seurat
 
+read.spatial.dat<-function(folder,filenm,resolut=0.3,loc_file,n.vgg=3000){
+  spdat <- Load10X_Spatial(folder,
+                           filename = filenm,
+                           assay = "Spatial", 
+                           slice = "slice1",
+                           filter.matrix = TRUE,
+                           to.upper = FALSE,
+                           image = NULL)
+  
+  spdat=SCTransform(spdat,assay = 'Spatial',variable.features.n = n.vgg) 
+  spdat=RunPCA(spdat)
+  spdat=FindNeighbors(spdat,dims=1:30) #First 30 PCs
+  spdat=FindClusters(spdat,resolution=resolut)
+  spdat=RunUMAP(spdat,dims=1:30)
+  DimPlot(spdat,reduction='umap',label = TRUE,repel=TRUE)
+  
+  sp.counts.r=t(as.matrix(spdat@assays$Spatial$counts))
+  sp.counts.norm=t(as.matrix(as.matrix(spdat@assays$SCT@data))) #Normalized data
+  sp.counts.r=sp.counts.r[which(rownames(sp.counts.r) %in% rownames(sp.counts.norm)),
+                          which(colnames(sp.counts.r) %in% colnames(sp.counts.norm))]
+  meta_dat=spdat@meta.data
+  
+  sp.counts.norm=sp.counts.norm[rownames(meta_dat),]
+  sp.counts.r=sp.counts.r[rownames(meta_dat),]
+  sp.counts.scale=t(spdat@assays$SCT$scale.data)
+  sp.counts.scale=sp.counts.scale[rownames(meta_dat),]
+  
+  #print(sp.counts.r[1:5,1:5])
+  row.sum=rowSums(sp.counts.r)
+  col.sum=colSums(sp.counts.r)
+  print(paste("Minimum number of scripts per row:",min(row.sum)))
+  print(paste("Minimum number of scripts per colum:",min(col.sum)))
+  
+  ###Location
+  tmp.loc=read.csv(loc_file,sep=',',header=F)
+  #dim(tmp.loc)
+  tmp.loc=tmp.loc[which(tmp.loc[,1] %in% rownames(sp.counts.r)),]
+  rownames(tmp.loc)=tmp.loc[,1]
+  tmp.loc=tmp.loc[,5:6]
+  colnames(tmp.loc)=c('x','y')
+  loc.raw=data.frame(tmp.loc)
+  
+  loc.raw$x=as.numeric(loc.raw$x)
+  loc.raw$y=as.numeric(loc.raw$y)
+  
+  loc.raw=loc.raw[rownames(meta_dat),]
+  
+  #plot(loc.raw$x,loc.raw$y)
+  out=c(list(sp.counts.r),list(sp.counts.norm),list(sp.counts.scale),list(meta_dat),list(loc.raw))
+  
+  names(out)=c('sp.counts.r','sp.counts.norm','sp.counts.scale','meta_dat','loc.raw')
+  return(out)
+}
 
 
 
@@ -95,6 +148,110 @@ boxplot_pt<-function(loc,meta_dat){
 }
 
 
+### 7. To find tumor clusters
+clustermeans<-function(count_dat,meta_dat,cancer.markers){
+  tmp.markers=cancer.markers[which(cancer.markers %in% colnames(count_dat))]
+  tmp.dat=count_dat[,tmp.markers]
+  meta_dat=meta_dat[rownames(tmp.dat),]
+  
+  #print("Median")
+  med=apply(tmp.dat,2,function(x) aggregate(x~meta_dat$seurat_clusters,data=meta_dat,median)[,2])
+  #print(med)
+  
+  #print("Mean")
+  mm=apply(tmp.dat,2,function(x) aggregate(x~meta_dat$seurat_clusters,data=meta_dat,mean)[,2])
+  #print(mm)
+  return(c(list(med),list(mm)))
+}
+
+### 8. Assign Exhaustion score (PT) to each spot
+add_sum_to_meta<-function(ex.list,cell,sp.counts.r,meta_dat){
+  ex.sum=rowSums(sp.counts.r[,ex.list])
+  cell.sum=rowSums(sp.counts.r[,cell])
+  
+  print(paste('Sum of ',paste(cell,collapse = ',')))
+  print(quantile(cell.sum,probs=seq(0,1,length=21)))
+  
+  print(paste('Sum of ',paste(ex.list,collapse = ',')))
+  print(quantile(round(ex.sum),probs=seq(0,1,length=201)))
+  
+  names(cell.sum)=rownames(sp.counts.r)
+  names(ex.sum)=rownames(sp.counts.r)
+  
+  meta_dat$cell.sum=cell.sum[rownames(meta_dat)]
+  meta_dat$ex.sum=ex.sum[rownames(meta_dat)]
+  
+  return(meta_dat)
+}
+
+add_pt_to_meta<-function(keep.ids,meta_dat){
+  meta_dat_cell=meta_dat[keep.ids,]
+  tmp=lm(ex.sum~cell.sum,data=meta_dat_cell)
+  ex.score=tmp$residuals
+  ex.score=ex.score+abs(min(ex.score))
+  meta_dat$ex.score=NA
+  meta_dat[keep.ids,'ex.score']=ex.score
+  print(head(meta_dat))
+  return(meta_dat)
+}
+
+
+### 9. Assign subclusters and create meta data for subclusters
+assign_subcluster<-function(cut.t,spots,spot.sdist,nr,r.unit,spot.pt.dist){ 
+  #cut.t is the threshold of pseudotime distance between spots that can form a subcluster,nr is the threshold of number of space distance unit
+  tmp.list=c()
+  for (i in spots) {
+    nbs=names(which(spot.sdist[i,]<nr*r.unit))
+    if (length(nbs)==0) {print('error')}
+    tmp.clus=nbs[which(spot.pt.dist[i,nbs]<cut.t)]
+    tmp.list=c(tmp.list,list(tmp.clus))
+  }
+  tmp.list=unique(tmp.list)
+  
+  ll=unlist(lapply(tmp.list,length))
+  if (max(ll)<=2) {
+    return(tmp.list)
+  }
+  if (max(ll)>2) {
+    final.list=c()
+    for (j in 2:(max(ll)-1)){
+      s.clus=tmp.list[ll==j]
+      b.clus=tmp.list[ll>j]
+      max.overlap=unlist(lapply(s.clus,function(x) max(n.overlap(v1=x,v.list=b.clus))))
+      if (max(max.overlap)==j) {
+        s.clus=s.clus[-which(max.overlap==j)]
+      }
+      final.list=c(final.list,s.clus)
+    }
+    final.list=c(tmp.list[ll==1],final.list,tmp.list[ll==max(ll)])
+    print(sum(unlist(lapply(final.list,length))))
+    print(table(unlist(lapply(final.list,length))))
+    return(final.list)
+  }
+}
+meta_subclusters<-function(sub.clusters,loc,pt,meta_dat,keep.ids){
+  meta_dat_cell=meta_dat[keep.ids,]
+  
+  loc.cts=do.call(rbind,lapply(sub.clusters,function(x) colSums(loc[x,])/length(x)))
+  rownames(loc.cts)=paste0('cts',1:nrow(loc.cts))
+  colnames(loc.cts)=c('x','y')
+  pt.cts=unlist(lapply(sub.clusters,function(x) mean(pt[x])))
+  names(pt.cts)=rownames(loc.cts)
+  
+  tmp.cluster=lapply(sub.clusters,function(x) meta_dat_cell[x,'seurat_clusters'])
+  tmp.cluster=lapply(tmp.cluster,function(x) prop.table(table(x)))
+  tmp.cluster=unlist(lapply(tmp.cluster,function(x) names(x)[which(x==max(x))][1]))
+  cts.meta=data.frame(loc.cts,pt.cts,tmp.cluster)
+  colnames(cts.meta)=c('x','y','pt','seurat_clusters')
+  return(cts.meta)
+}
+
+
+
+
+
+
+
 
 
 
@@ -103,6 +260,20 @@ boxplot_pt<-function(loc,meta_dat){
 ### 1. 3-D line method
 
 
+# (1) Rescale location coordinates based on range of exhaustion score 
+
+rescale_loc<-function(keep.ids=keep.ids,loc,pt,aa=1){ #aa act as a weight of physical distance
+  loc=data.frame(loc[keep.ids,])
+  loc$x=as.numeric(loc$x)
+  loc$y=as.numeric(loc$y)
+  
+  loc$x=loc$x-min(loc$x)
+  loc$y=loc$y-min(loc$y)
+  loc$x=loc$x*max(pt)*aa/max(loc$x)
+  loc$y=loc$y*max(pt)*aa/max(loc$y)
+  plot(loc)
+  return(loc)
+}
 
 
 # (2) For a node, get nodes within certain xy-plane distance of it
