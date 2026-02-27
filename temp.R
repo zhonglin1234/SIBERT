@@ -15,10 +15,10 @@ for (f in head(rdata_files, 2)) {
 tcell_markers=c('CD3D','CD3E','CD3G','CD4','CD8A','CD8B2')
 ex_markers=c('PDCD1','LAG3','HAVCR2','TIGIT','ENTPD1','CTLA4','TOX')
 
-dat1=data_preparation_TRR(folder='data/visium_hd/pseudo_visium/',
-                          filenm = "filtered_feature_bc_matrix.h5",
+dat1=data_preparation_TRR(folder='data/visium_melanoma1',
+                          filenm = "CytAssist_FFPE_Human_Skin_Melanoma_filtered_feature_bc_matrix.h5",
                           res=0.2,
-                          loc_file='data/visium_hd/pseudo_visium/spatial/tissue_positions.csv',
+                          loc_file='data/visium_melanoma1/spatial/tissue_positions.csv',
                           ex_markers=ex_markers,
                           tcell_markers=tcell_markers
 )
@@ -73,7 +73,78 @@ first_dr<-find_optimal_mu_Q(mu_Q_candidates=seq(0.16, 0.44, by = 0.01),
 J1=as.numeric(names(first_dr)[which(first_dr==min(first_dr))])
 
 
+all.lines=get_lines(loc.raw,grid.type='hex',max_gap = 7,aa=0.2)
+plot_lines(loc.raw,all.lines,grid.type='hex')
 
+
+margin.spots=c()
+
+for (i in 1:length(all.lines)) {
+  tmp.lines=all.lines[[i]]
+  margin.spots=c(margin.spots,unlist(lapply(tmp.lines,function(x) rownames(x)[c(1,nrow(x))])))
+}
+margin.spots=unique(margin.spots)
+
+plot(loc.raw)
+points(loc.raw[margin.spots,],col='red')
+
+NN=nrow(sp.counts.r)
+YY=rowSums(sp.counts.r[,ex_markers])
+XX = cbind(rep(1, NN), rep(NA, NN),rowSums(sp.counts.r[,tcell_markers]))
+rownames(XX)=names(YY)
+
+all.output.tcell=get_cps_and_save(all.lines,
+                                  YY=YY,
+                                  XX=XX,
+                                  K=0,
+                                  alpha_vec=seq(0.1,1,length=10),
+                                  method_cp='PG',
+                                  dat_name='data/melanoma1_tcelladj',
+                                  grid.type='hex')
+
+
+load("data/melanoma1_tcelladj_exhst_cps_penalty_10_20_30_40_50_60_70_80_90_100.Rdata")
+
+for (i in c(10)) {
+  tmp.output=calculate_slopes(all_segs=all.segs.list[[i]],
+                              all.lines=all.lines,
+                              y_markers=ex_markers,
+                              sp.counts.r,
+                              method_beta='PG',
+                              alpha=alpha_vec[i],
+                              dat_name='data/melanoma1')
+}
+
+
+
+load("data/melanoma1_tcelladj_exhst_cps_penalty_10_20_30_40_50_60_70_80_90_100.Rdata")
+load("data/melanoma1_exhst_slopes_penalty100.Rdata")
+
+lambda.list=seq(1,10,length=5)
+j2.dat=plot_J2(J1=J1,lambda.list=lambda.list)
+mean.list=j2.dat[[1]]
+n.add=j2.dat[[2]]
+new.nb.list==j2.dat[[3]]
+
+plot(mean.list, type = 'l', ylim = c(0, 20), xaxt = "n", xlab = "J2",ylab='% spots with Pr(TRR)>0.7')  # Suppress default x-axis
+axis(1, at = seq_along(mean.list), labels = round(lambda.list,1))  # Add custom x-axis
+#Find the transition point of the means and define it as J2
+
+
+ss.mat=gibbs_sampling_new(ss=ss,
+                          spot_names=names(obs_ss),
+                          n_add=n.add*J2,
+                          nb_list=nb.r,
+                          new_nb_list=new.nb.list,
+                          J=J1,
+                          loc=loc.raw,
+                          iterations = 5)
+ss.mat[ss.mat==-1]=0
+final.probs=calculate_final_prob(ss.mat, loc=loc.dat, burn_in = 2000,J=J1)
+
+
+
+final.regions=get_TRR(final.probs)
 
 
 
