@@ -624,7 +624,7 @@ get_cps_and_save<-function(all.lines,YY,XX,K=0,alpha_vec,method_cp='PG',dat_name
   
   # Save the specified variables before proceeding
   alpha_str <- paste0(sprintf("%02d", as.integer(alpha_vec * 100)), collapse = "_")
-  save_file <- paste0("/Users/linzhong/Desktop/ST/segmentline/", dat_name, "_exhst_cps_penalty_", alpha_str, ".Rdata")
+  save_file <- paste0(dat_name, "_exhst_cps_penalty_", alpha_str, ".Rdata")
   
   save(all.lines, K, alpha_vec, all.cps.list, nn.cps.list, all.segs.list, all.segs.length.list,YY,XX,all.cost.mat, file = save_file)
   
@@ -730,7 +730,7 @@ calculate_slopes <- function(all_segs, all.lines, y_markers, sp.counts.r, method
   slope.output=list(slope.mat=slope.mat,mean.mat=mean.mat)
   
   alpha_str <- sprintf("%02d", as.integer(alpha * 100))
-  save_file <- paste0("/Users/linzhong/Desktop/ST/segmentline/", dat_name, "_exhst_slopes_penalty", alpha_str, ".Rdata")
+  save_file <- paste0(dat_name, "_exhst_slopes_penalty", alpha_str, ".Rdata")
   
   save(slope.output, file=save_file)
   return(slope.output)
