@@ -193,6 +193,11 @@ axis(1, at = seq_along(mean.list), labels = round(lambda.list,1))  # Add custom 
 
 ## Step 8: Gibbs Sampling to get the probablity of belonging to entry region for each spot
 ```r
+# Initialize with a random system
+ss <- sample(c(1,-1),size=length(obs_ss),replace=T)
+names(ss)=names(obs_ss)
+
+#Gibbs sampling 
 ss.mat=gibbs_sampling_new(ss=ss, 
                           spot_names=names(obs_ss), 
                           n_add=n.add*J2,
